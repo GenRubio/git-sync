@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "@octokit/rest": "^22.0.0",
+    "dotenv": "^16.5.0",
+    "fs-extra": "^11.3.0",
+    "ignore": "^7.0.5",
+    "recursive-copy": "^2.0.14",
+    "rimraf": "^6.0.1"
+  }
+}
