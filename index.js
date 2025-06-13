@@ -70,6 +70,39 @@ async function copyWithAllIgnores(srcDir, destDir, ancestorsIg = []) {
 }
 
 /**
+ * Descarta todos los cambios locales en un repo Git:
+ *  - git reset --hard
+ *  - git clean -fd
+ */
+function discardLocalChanges(repoPath) {
+    try {
+        execSync('git reset --hard', { cwd: repoPath, stdio: 'ignore' });
+        execSync('git clean -fd', { cwd: repoPath, stdio: 'ignore' });
+        console.log('✅ Cambios locales descartados en copia');
+    } catch (err) {
+        console.error('⚠️ Error al descartar cambios locales:', err.message);
+    }
+}
+
+/**
+ * Hace commit con mensaje genérico y push a la rama main
+ */
+function commitAndPush(repoPath, message = 'Sync desde principal') {
+    try {
+        execSync('git add .', { cwd: repoPath });
+        execSync(`git commit -m "${message}"`, { cwd: repoPath });
+        execSync('git push origin HEAD:main', { cwd: repoPath, stdio: 'inherit' });
+        console.log('🔗 Push completado desde copia');
+    } catch (err) {
+        if (/nothing to commit/.test(err.message)) {
+            console.log('ℹ️ No había cambios para commitear');
+        } else {
+            console.error('⚠️ Error en commit/push:', err.message);
+        }
+    }
+}
+
+/**
  * Sincroniza src → dest SIN BORRAR NADA:
  * solo copia encima lo no ignorado.
  */
@@ -129,34 +162,44 @@ async function showMenu(projPath, destProjPath) {
     let bg = null;
     while (true) {
         console.log('\n--- Menú Principal ---');
-        console.log('1. Sincronizar copia → principal una vez');
-        console.log('2. Sincronizar principal → copia una vez');
-        console.log('3. Activar sync en segundo plano (cada 1s)');
-        console.log('4. Desactivar sync en segundo plano');
-        console.log('5. Salir');
+        console.log('1. Sincronizar principal → copia una vez');
+        console.log('2. Sincronizar principal → copia con descartar cambios locales + push');
+        console.log('3. Sincronizar copia → principal una vez');
+        console.log('4. Activar sync en segundo plano (cada 1s)');
+        console.log('5. Desactivar sync en segundo plano');
+        console.log('6. Salir');
         const opt = (await askQuestion('Selecciona una opción: ')).trim();
 
         switch (opt) {
             case '1':
-                await syncDirs(destProjPath, projPath);
-                console.log('✅ Sync copia→principal');
-                break;
-            case '2':
                 await syncDirs(projPath, destProjPath);
                 console.log('✅ Sync principal→copia');
                 break;
+            case '2':
+                // 1) Descartar cambios locales en copia
+                discardLocalChanges(destProjPath);
+                // 2) Sincronizar principal → copia
+                await syncDirs(projPath, destProjPath);
+                console.log('✅ Sync principal→copia completado');
+                // 3) Commit & Push en la copia
+                commitAndPush(destProjPath, 'Sincronización automática desde principal');
+                break;
             case '3':
+                await syncDirs(destProjPath, projPath);
+                console.log('✅ Sync copia→principal');
+                break;
+            case '4':
                 if (!bg) {
                     bg = startBackgroundSync(projPath, destProjPath);
                     console.log('🔄 Sync background ON');
                 } else console.log('⚠️ Ya activo');
                 break;
-            case '4':
+            case '5':
                 stopBackgroundSync(bg);
                 bg = null;
                 console.log('⏹ Sync background OFF');
                 break;
-            case '5':
+            case '6':
                 stopBackgroundSync(bg);
                 console.log('👋 Adiós');
                 rl.close();
