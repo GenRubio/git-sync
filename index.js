@@ -206,6 +206,7 @@ async function showMenu(projPath, destProjPath) {
         console.log('1. Sincronizar principal → copia una vez');
         console.log('2. Sincronizar principal → copia con descartar cambios locales + push');
         console.log('3. Sincronizar copia → principal una vez');
+        console.log('4. Delete extraneous en copia (sin sincronizar)');
         const opt = (await askQuestion('Selecciona una opción: ')).trim();
 
         switch (opt) {
@@ -222,6 +223,10 @@ async function showMenu(projPath, destProjPath) {
             case '3':
                 await syncDirs(destProjPath, projPath);
                 console.log('✅ Sync copia→principal');
+                break;
+            case '4':
+                await deleteExtraneous(destProjPath, destProjPath);
+                console.log('✅ Extraneous borrados en copia');
                 break;
             default:
                 console.log('Opción inválida');
