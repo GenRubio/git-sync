@@ -70,6 +70,57 @@ async function copyWithAllIgnores(srcDir, destDir, ancestorsIg = []) {
 }
 
 /**
+ * Elimina en destDir todos los archivos/carpetas que NO existen en srcDir,
+ * respetando los .gitignore aplicables (i.e. mismos parsers que en copyWithAllIgnores).
+ */
+async function deleteExtraneous(srcDir, destDir, ancestorsIg = []) {
+    // 1) Leer .gitignore local y crear parser
+    let localIg;
+    const gi = path.join(srcDir, '.gitignore');
+    if (fs.existsSync(gi)) {
+        const txt = fs.readFileSync(gi, 'utf8');
+        localIg = ignore().add(
+            txt.split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#'))
+        );
+    }
+    const parsers = localIg ? [...ancestorsIg, { root: srcDir, ig: localIg }] : ancestorsIg;
+
+    // 2) Si no existe destDir, nada que borrar
+    if (!fs.existsSync(destDir)) return;
+
+    // 3) Recorremos destDir
+    for (const entry of fs.readdirSync(destDir, { withFileTypes: true })) {
+        const name = entry.name;
+        const srcPath = path.join(srcDir, name);
+        const destPath = path.join(destDir, name);
+
+        // 4) Nunca tocar .git
+        if (name === '.git') continue;
+
+        // 5) Aplicar .gitignore: si está ignorado en origen, no lo tocamos
+        let skip = false;
+        for (const { root, ig } of parsers) {
+            const rel = path.relative(root, srcPath).split(path.sep).join('/');
+            if (!rel.startsWith('..') && ig.ignores(rel)) {
+                skip = true;
+                break;
+            }
+        }
+        if (skip) continue;
+
+        // 6) Si NO existe en src, lo borramos
+        if (!fs.existsSync(srcPath)) {
+            await fse.remove(destPath);
+            console.log(`🗑️  Eliminado en copia: ${destPath}`);
+        }
+        // 7) Si existe y es directorio, recursión
+        else if (entry.isDirectory()) {
+            await deleteExtraneous(srcPath, destPath, parsers);
+        }
+    }
+}
+
+/**
  * Descarta todos los cambios locales en un repo Git:
  *  - git reset --hard
  *  - git clean -fd
@@ -106,24 +157,14 @@ function commitAndPush(repoPath, message = 'Sync desde principal') {
  * Sincroniza src → dest SIN BORRAR NADA:
  * solo copia encima lo no ignorado.
  */
-async function syncDirs(src, dest) {
+async function syncDirs(src, dest, deleteExtraneous = false) {
+    // 1) Copiamos todo lo no ignorado (como ya tienes)
     await copyWithAllIgnores(src, dest);
+    if (!deleteExtraneous) return;
+    // 2) Borramos en dest lo que ya no está en src
+    await deleteExtraneous(src, dest);
 }
 
-function startBackgroundSync(src, dest) {
-    return setInterval(async () => {
-        console.log('[Background] Sincronizando copia → principal...');
-        try {
-            await syncDirs(dest, src);
-        } catch (err) {
-            console.error('Error en background sync:', err.message);
-        }
-    }, 1000);
-}
-
-function stopBackgroundSync(id) {
-    if (id) clearInterval(id);
-}
 
 async function uploadToGitHub(destPath, projectName) {
     try {
@@ -165,45 +206,23 @@ async function showMenu(projPath, destProjPath) {
         console.log('1. Sincronizar principal → copia una vez');
         console.log('2. Sincronizar principal → copia con descartar cambios locales + push');
         console.log('3. Sincronizar copia → principal una vez');
-        console.log('4. Activar sync en segundo plano (cada 1s)');
-        console.log('5. Desactivar sync en segundo plano');
-        console.log('6. Salir');
         const opt = (await askQuestion('Selecciona una opción: ')).trim();
 
         switch (opt) {
             case '1':
-                await syncDirs(projPath, destProjPath);
+                await syncDirs(projPath, destProjPath, true);
                 console.log('✅ Sync principal→copia');
                 break;
             case '2':
-                // 1) Descartar cambios locales en copia
                 discardLocalChanges(destProjPath);
-                // 2) Sincronizar principal → copia
-                await syncDirs(projPath, destProjPath);
+                await syncDirs(projPath, destProjPath, true);
                 console.log('✅ Sync principal→copia completado');
-                // 3) Commit & Push en la copia
                 commitAndPush(destProjPath, 'Sincronización automática desde principal');
                 break;
             case '3':
                 await syncDirs(destProjPath, projPath);
                 console.log('✅ Sync copia→principal');
                 break;
-            case '4':
-                if (!bg) {
-                    bg = startBackgroundSync(projPath, destProjPath);
-                    console.log('🔄 Sync background ON');
-                } else console.log('⚠️ Ya activo');
-                break;
-            case '5':
-                stopBackgroundSync(bg);
-                bg = null;
-                console.log('⏹ Sync background OFF');
-                break;
-            case '6':
-                stopBackgroundSync(bg);
-                console.log('👋 Adiós');
-                rl.close();
-                return;
             default:
                 console.log('Opción inválida');
         }
