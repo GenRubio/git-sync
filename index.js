@@ -225,7 +225,7 @@ async function showMenu(projPath, destProjPath) {
                 console.log('✅ Sync copia→principal');
                 break;
             case '4':
-                await deleteExtraneous(destProjPath, destProjPath);
+                await deleteExtraneous(projPath, destProjPath);
                 console.log('✅ Extraneous borrados en copia');
                 break;
             default:
