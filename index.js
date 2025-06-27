@@ -23,7 +23,6 @@ async function askQuestion(query) {
  * - Omite enlaces simbólicos
  */
 async function copyWithAllIgnores(srcDir, destDir, ancestorsIg = []) {
-    // 1) Leer .gitignore local y crear parser
     let localIg;
     const gi = path.join(srcDir, '.gitignore');
     if (fs.existsSync(gi)) {
@@ -33,23 +32,15 @@ async function copyWithAllIgnores(srcDir, destDir, ancestorsIg = []) {
         );
     }
     const parsers = localIg ? [...ancestorsIg, { root: srcDir, ig: localIg }] : ancestorsIg;
-
-    // 2) Asegurar destino
     await fse.ensureDir(destDir);
-
-    // 3) Recorrer entradas
     for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
         const name = entry.name;
         const srcPath = path.join(srcDir, name);
         const destPath = path.join(destDir, name);
 
-        // 4) Nunca copiar .git
         if (name === '.git') continue;
-
-        // 5) Omitir symlinks
         if (fs.lstatSync(srcPath).isSymbolicLink()) continue;
 
-        // 6) Aplicar todos los parsers de .gitignore encontrados
         let skip = false;
         for (const { root, ig } of parsers) {
             const rel = path.relative(root, srcPath).split(path.sep).join('/');
@@ -60,7 +51,6 @@ async function copyWithAllIgnores(srcDir, destDir, ancestorsIg = []) {
         }
         if (skip) continue;
 
-        // 7) Recursión o copia de archivo
         if (entry.isDirectory()) {
             await copyWithAllIgnores(srcPath, destPath, parsers);
         } else if (entry.isFile()) {
@@ -71,10 +61,9 @@ async function copyWithAllIgnores(srcDir, destDir, ancestorsIg = []) {
 
 /**
  * Elimina en destDir todos los archivos/carpetas que NO existen en srcDir,
- * respetando los .gitignore aplicables (i.e. mismos parsers que en copyWithAllIgnores).
+ * respetando los .gitignore aplicables.
  */
 async function deleteExtraneous(srcDir, destDir, ancestorsIg = []) {
-    // 1) Leer .gitignore local y crear parser
     let localIg;
     const gi = path.join(srcDir, '.gitignore');
     if (fs.existsSync(gi)) {
@@ -84,20 +73,15 @@ async function deleteExtraneous(srcDir, destDir, ancestorsIg = []) {
         );
     }
     const parsers = localIg ? [...ancestorsIg, { root: srcDir, ig: localIg }] : ancestorsIg;
-
-    // 2) Si no existe destDir, nada que borrar
     if (!fs.existsSync(destDir)) return;
 
-    // 3) Recorremos destDir
     for (const entry of fs.readdirSync(destDir, { withFileTypes: true })) {
         const name = entry.name;
         const srcPath = path.join(srcDir, name);
         const destPath = path.join(destDir, name);
 
-        // 4) Nunca tocar .git
         if (name === '.git') continue;
 
-        // 5) Aplicar .gitignore: si está ignorado en origen, no lo tocamos
         let skip = false;
         for (const { root, ig } of parsers) {
             const rel = path.relative(root, srcPath).split(path.sep).join('/');
@@ -108,13 +92,10 @@ async function deleteExtraneous(srcDir, destDir, ancestorsIg = []) {
         }
         if (skip) continue;
 
-        // 6) Si NO existe en src, lo borramos
         if (!fs.existsSync(srcPath)) {
             await fse.remove(destPath);
             console.log(`🗑️  Eliminado en copia: ${destPath}`);
-        }
-        // 7) Si existe y es directorio, recursión
-        else if (entry.isDirectory()) {
+        } else if (entry.isDirectory()) {
             await deleteExtraneous(srcPath, destPath, parsers);
         }
     }
@@ -154,17 +135,15 @@ function commitAndPush(repoPath, message = 'Sync desde principal') {
 }
 
 /**
- * Sincroniza src → dest SIN BORRAR NADA:
- * solo copia encima lo no ignorado.
+ * Sincroniza src → dest:
+ *   - copia lo no ignorado
+ *   - opcionalmente elimina extraneous según shouldDeleteExtraneous
  */
-async function syncDirs(src, dest, deleteExtraneous = false) {
-    // 1) Copiamos todo lo no ignorado (como ya tienes)
+async function syncDirs(src, dest, shouldDeleteExtraneous = false) {
     await copyWithAllIgnores(src, dest);
-    if (!deleteExtraneous) return;
-    // 2) Borramos en dest lo que ya no está en src
+    if (!shouldDeleteExtraneous) return;
     await deleteExtraneous(src, dest);
 }
-
 
 async function uploadToGitHub(destPath, projectName) {
     try {
@@ -200,7 +179,6 @@ async function uploadToGitHub(destPath, projectName) {
 }
 
 async function showMenu(projPath, destProjPath) {
-    let bg = null;
     while (true) {
         console.log('\n--- Menú Principal ---');
         console.log('1. Sincronizar principal → copia una vez');
@@ -243,7 +221,6 @@ async function main() {
             ? process.env.DESTINATION_PATH
             : (await askQuestion('Ruta destino copia: ')).trim();
 
-        // Evitar rutas idénticas
         const destProjectPath = path.join(baseDest, path.basename(projectPath));
         if (path.resolve(projectPath) === path.resolve(destProjectPath)) {
             console.error('❌ Origen y destino no pueden ser iguales.');
